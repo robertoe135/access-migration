@@ -1,6 +1,7 @@
 # streamlit_app.py
 import os
 import re
+from datetime import date
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -16,6 +17,7 @@ TEMPLATE_CANDIDATE_PATHS = (
     "assets/TEMPLATE.xlsx",
     "./assets/TEMPLATE.xlsx",
 )
+
 FIXTURE_CODE_RE = re.compile(r"^[A-Z]{1,3}(?:-\d+)?$")
 
 
@@ -38,7 +40,7 @@ def resolve_template_path() -> str:
         if os.path.exists(abs_p):
             return abs_p
 
-    # Fallback to script directory (in case cwd differs)
+    # Fallback to script directory
     script_dir = os.path.dirname(__file__)
     for p in TEMPLATE_CANDIDATE_PATHS:
         abs_p = os.path.join(script_dir, p)
@@ -106,6 +108,7 @@ def pick_lumens(block: pd.DataFrame) -> str:
 
 
 def pick_input_load(block: pd.DataFrame) -> str:
+    # Return numeric only (no W)
     for _, r in block.iterrows():
         for c in block.columns:
             t = _s(r.get(c, "")).strip()
@@ -117,8 +120,8 @@ def pick_input_load(block: pd.DataFrame) -> str:
     return ""
 
 
-
 def pick_unit(block: pd.DataFrame) -> str:
+    # If ln.ft appears anywhere in nearby unit-ish columns, return ln.ft; else each
     unit_cols = ["Unnamed: 8", "Unnamed: 6", "Unnamed: 9"]
     raw = ""
     for c in unit_cols:
@@ -130,6 +133,7 @@ def pick_unit(block: pd.DataFrame) -> str:
                     break
         if raw:
             break
+
     low = raw.lower()
     if "ln.ft" in low or "ln/ft" in low or "linear" in low:
         return "ln.ft"
@@ -137,18 +141,22 @@ def pick_unit(block: pd.DataFrame) -> str:
 
 
 def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
+    # Preserve catalog EXACTLY as it appears (incl *TBC by architect notes, etc.)
     if "Unnamed: 1" not in block.columns:
         return ""
+
     candidates = []
     for k in range(1, len(block)):
         val = block.iloc[k].get("Unnamed: 1", "")
         if pd.isna(val):
             continue
-        txt = str(val)  # preserve exact text (incl notes)
+        txt = str(val)  # exact text
         t = txt.strip()
         if not t:
             continue
         low = t.lower()
+
+        # Skip obvious non-catalog lines
         if "http" in low or "www" in low or "@" in t or "#ref" in low:
             continue
         if re.search(r"\(\d{3}\)", t) or re.search(r"\d{3}[-\s]\d{3}[-\s]\d{4}", t):
@@ -165,6 +173,8 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
             score += 2
         if re.search(r"[A-Z]{2,}\d", t):
             score += 2
+
+        # Penalize product-name-only lines like "Fraxion 3"
         if re.fullmatch(r"[A-Za-z]+\s*\d+", t) and "_" not in t:
             score -= 6
 
@@ -172,6 +182,7 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
 
     if not candidates:
         return ""
+
     candidates.sort(key=lambda x: (-x[0], -len(x[1])))
     return candidates[0][1]
 
@@ -220,34 +231,55 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
 
         out = dict(default_row)
 
+        # Core mappings
         if "Type" in out:
             out["Type"] = fixture_type
+
         if "Manufacturer" in out and manufacturer:
             out["Manufacturer"] = manufacturer
+
         if "CatalogNo" in out and catalog:
             out["CatalogNo"] = catalog
+
         if "BaseDescription" in out and base_desc:
             out["BaseDescription"] = base_desc
+
         if "Protection" in out and protection:
             out["Protection"] = protection
+
         if "Location" in out and location:
             out["Location"] = location
+
         if "DimProtocol" in out and dim_proto:
             out["DimProtocol"] = dim_proto
+
         if "LumenOutput" in out and lumens:
             out["LumenOutput"] = lumens
 
+        # Input load numeric only
         if input_load:
             if "InputLoad" in out:
                 out["InputLoad"] = input_load
             elif "Lamp1InputLoad" in out:
                 out["Lamp1InputLoad"] = input_load
 
+        # Unit type normalization
         if unit_field and unit_field in out:
             out[unit_field] = unit_value
 
+        # VOID flag
         if "VOID" in out:
             out["VOID"] = True if void_flag else bool(out["VOID"])
+
+        # Efficacy: clear and do not confirm
+        if "Efficacy" in out:
+            out["Efficacy"] = ""
+        if "EfficacyConfirmed" in out:
+            out["EfficacyConfirmed"] = False
+
+        # Quote date: always today
+        if "QuoteDate" in out:
+            out["QuoteDate"] = date.today().isoformat()
 
         out_rows.append(out)
 
@@ -268,7 +300,10 @@ if schedule_file is not None:
     if show_detected:
         first_col = schedule_df.columns[0]
         mask = schedule_df[first_col].apply(is_fixture_code)
-        st.dataframe(schedule_df.loc[mask, [first_col]].head(200), use_container_width=True)
+        st.dataframe(
+            schedule_df.loc[mask, [first_col]].head(200),
+            use_container_width=True,
+        )
 
     out_df = transform(schedule_df, headers, default_row)
 
