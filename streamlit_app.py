@@ -1,5 +1,4 @@
 # streamlit_app.py
-import io
 import os
 import re
 from typing import Dict, List, Optional, Tuple
@@ -12,7 +11,6 @@ import openpyxl
 APP_TITLE = "Fixture Schedule Migration to Access"
 TEMPLATE_FILENAME = "TEMPLATE.xlsx"
 TEMPLATE_SHEETNAME = "tbeFixtureTypeDetails"
-
 FIXTURE_CODE_RE = re.compile(r"^[A-Z]{1,3}(?:-\d+)?$")
 
 
@@ -28,18 +26,37 @@ def is_fixture_code(x) -> bool:
     return bool(FIXTURE_CODE_RE.fullmatch(_s(x).strip()))
 
 
-def load_template_defaults_from_repo() -> Tuple[List[str], Dict[str, object]]:
-    template_path = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(
-            f"Missing {TEMPLATE_FILENAME} next to streamlit_app.py"
-        )
+def resolve_template_path() -> str:
+    """
+    Streamlit Cloud mounts repo at /mount/src/<repo_name>/...
+    Use current working directory as the repo root, then fall back to script dir.
+    """
+    cwd_path = os.path.join(os.getcwd(), TEMPLATE_FILENAME)
+    if os.path.exists(cwd_path):
+        return cwd_path
 
+    script_dir_path = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
+    if os.path.exists(script_dir_path):
+        return script_dir_path
+
+    # Try one directory up from script (common if script is in a subfolder)
+    parent_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), TEMPLATE_FILENAME)
+    if os.path.exists(parent_path):
+        return parent_path
+
+    raise FileNotFoundError(
+        f"Missing {TEMPLATE_FILENAME}. Put it in your repo root (same level as streamlit_app.py), "
+        f"or in the same folder as streamlit_app.py."
+    )
+
+
+def load_template_defaults_from_repo() -> Tuple[List[str], Dict[str, object]]:
+    template_path = resolve_template_path()
     wb = openpyxl.load_workbook(template_path, data_only=True)
     if TEMPLATE_SHEETNAME not in wb.sheetnames:
         raise ValueError(f"Template must contain a sheet named '{TEMPLATE_SHEETNAME}'.")
-
     ws = wb[TEMPLATE_SHEETNAME]
+
     headers = [c.value for c in ws[1]]
     defaults = [c.value for c in ws[2]]
 
@@ -113,7 +130,6 @@ def pick_unit(block: pd.DataFrame) -> str:
                     break
         if raw:
             break
-
     raw_low = raw.lower()
     if "ln.ft" in raw_low or "ln/ft" in raw_low or "linear" in raw_low:
         return "ln.ft"
@@ -123,18 +139,16 @@ def pick_unit(block: pd.DataFrame) -> str:
 def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
     if "Unnamed: 1" not in block.columns:
         return ""
-
-    candidates: List[Tuple[int, int, str]] = []
+    candidates = []
     for k in range(1, len(block)):
         val = block.iloc[k].get("Unnamed: 1", "")
         if pd.isna(val):
             continue
-        txt = str(val)  # preserve exact text
+        txt = str(val)  # exact
         t = txt.strip()
         if not t:
             continue
         low = t.lower()
-
         if "http" in low or "www" in low or "@" in t or "#ref" in low:
             continue
         if re.search(r"\(\d{3}\)", t) or re.search(r"\d{3}[-\s]\d{3}[-\s]\d{4}", t):
@@ -154,13 +168,11 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
         if re.fullmatch(r"[A-Za-z]+\s*\d+", t) and "_" not in t:
             score -= 6
 
-        candidates.append((score, k, txt))
-
+        candidates.append((score, txt))
     if not candidates:
         return ""
-
-    candidates.sort(key=lambda x: (-x[0], -len(x[2])))
-    return candidates[0][2]
+    candidates.sort(key=lambda x: (-x[0], -len(x[1])))
+    return candidates[0][1]
 
 
 def find_best_unit_field(headers: List[str]) -> Optional[str]:
@@ -184,8 +196,7 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
         raise ValueError("No fixture designations found.")
 
     unit_field = find_best_unit_field(headers)
-
-    out_rows: List[Dict[str, object]] = []
+    out_rows = []
 
     for j, start in enumerate(fixture_idx):
         end = fixture_idx[j + 1] if j + 1 < len(fixture_idx) else len(schedule_df)
@@ -195,7 +206,6 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
         manufacturer = _s(block.iloc[0].get("Unnamed: 1", "")).strip()
         base_desc = _s(block.iloc[0].get("Unnamed: 3", "")).strip()
         dim_proto = _s(block.iloc[0].get("Unnamed: 17", "")).strip()
-
         if dim_proto.upper() == "0-10V":
             dim_proto = "0-10v (TVI)"
 
@@ -243,7 +253,6 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
     return pd.DataFrame(out_rows, columns=headers)
 
 
-# ---------------- UI ----------------
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 
