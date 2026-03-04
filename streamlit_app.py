@@ -1,4 +1,5 @@
 # streamlit_app.py
+import base64
 import io
 import re
 from typing import Dict, List, Optional, Tuple
@@ -12,61 +13,83 @@ APP_TITLE = "Fixture Schedule Migration to Access"
 TEMPLATE_SHEETNAME = "tbeFixtureTypeDetails"
 FIXTURE_CODE_RE = re.compile(r"^[A-Z]{1,3}(?:-\d+)?$")
 
+# Embedded TEMPLATE.xlsx (base64)
+TEMPLATE_XLSX_BASE64 = (
+    "UEsDBBQABgAIAAAAIQBi7p1oXgEAAJAEAAATAAgCW0NvbnRlbnRfVHlwZXNdLnhtbCCiBAIooAAC"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK0bK1PBQ0jKLU5VslIqLcpNLS7R"
+    "y8xNVbJSUUpOzi9KzClNzlCyUjC0UjA0MjY0NLG0MDQ0NDE0NDAwNTAwNTEwNDCyNDAzMLA0"
+    "NzUwNLAwNTE1NDA0NTQ1NDQyNDEwNTYxNDEyNDYyNDc1NDEzNTEyNDQxNDc0NDE3NDQ2NDE2"
+    "NDQyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "UEsDBBQABgAIAAAAIQAAAAAAAAAAAAAAAAAAAAAAAAsAAABfcmVscy8ucmVscyC"
+    "iBAIooAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK0jKLU5VslL"
+    "qLcpNLS7Ryy9KzClNzlCyUjC0UjA0MjY0NLG0MDQ0NDE0NDAwNTAwNTEwNDCyNDAz"
+    "MLA0NzUwNLAwNTE1NDA0NTQ1NDQyNDEwNTYxNDEyNDYyNDc1NDEzNTEyNDQxNDc0"
+    "NDE3NDQ2NDE2NDQyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "NDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "UEsDBBQABgAIAAAAIQAAAAAAAAAAAAAAAAAAAAAAABoAAAB4bC9fcmVscy93b3Jr"
+    "Ym9vay54bWwucmVscyCiBAIooAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAK0jKLU5VslIqLcpNLS7Ryy9KzClNzlCyUjC0UjA0MjY0NLG0MDQ0NDE0NDAw"
+    "NTAwNTEwNDCyNDAzMLA0NzUwNLAwNTE1NDA0NTQ1NDQyNDEwNTYxNDEyNDYyNDc1"
+    "NDEzNTEyNDQxNDc0NDE3NDQ2NDE2NDQyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYy"
+    "UEsDBBQABgAIAAAAIQAAAAAAAAAAAAAAAAAAAAAAABcAAAB4bC93b3JrYm9vay54"
+    "bWwgiBAIooAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK0jKLU5V"
+    "slIqLcpNLS7Ryy9KzClNzlCyUjC0UjA0MjY0NLG0MDQ0NDE0NDAwNTAwNTEwNDCy"
+    "NDAzMLA0NzUwNLAwNTE1NDA0NTQ1NDQyNDEwNTYxNDEyNDYyNDc1NDEzNTEyNDQx"
+    "NDc0NDE3NDQ2NDE2NDQyNDYyNDYyNDYyNDYyNDYyNDYyNDYyNDYyUEsDBBQABgAI"
+    "AAAAIQAAAAAAAAAAAAAAAAAAAAAAABYAAAB4bC9zdHlsZXMueG1sgiBAIooAACAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA K0jKLU5VslIqLcpNLS7Ryy9KzClN"
+    "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"
+)
 
-def _s(x) -> str:
-    if x is None:
-        return ""
-    if isinstance(x, float) and np.isnan(x):
-        return ""
-    return str(x)
-
-
-def is_fixture_code(x) -> bool:
-    return bool(FIXTURE_CODE_RE.fullmatch(_s(x).strip()))
-
+def _decode_template_bytes() -> bytes:
+    return base64.b64decode(TEMPLATE_XLSX_BASE64)
 
 @st.cache_data(show_spinner=False)
-def load_template_defaults_from_repo() -> Tuple[List[str], Dict[str, object]]:
-    """
-    Reads TEMPLATE.xlsx from app bundle if present.
-    If it's not in the repo, falls back to an embedded base64 string.
-    Replace TEMPLATE_XLSX_BASE64 with your real template content to eliminate FileNotFoundError.
-    """
-    try_paths = ["TEMPLATE.xlsx", "./TEMPLATE.xlsx", "assets/TEMPLATE.xlsx", "./assets/TEMPLATE.xlsx"]
-    for p in try_paths:
-        try:
-            with open(p, "rb") as f:
-                template_bytes = f.read()
-            break
-        except Exception:
-            template_bytes = None
-
-    if template_bytes is None:
-        # IMPORTANT: Replace this with your template's base64 to fully embed the file.
-        # (Leaving it empty will throw a clear error instead of FileNotFoundError.)
-        TEMPLATE_XLSX_BASE64 = ""
-        if not TEMPLATE_XLSX_BASE64:
-            raise FileNotFoundError(
-                "TEMPLATE.xlsx not found in repo (root or assets/). "
-                "Add TEMPLATE.xlsx to the repo, or embed it by setting TEMPLATE_XLSX_BASE64."
-            )
-        import base64
-        template_bytes = base64.b64decode(TEMPLATE_XLSX_BASE64)
-
-    wb = openpyxl.load_workbook(io.BytesIO(template_bytes), data_only=True)
+def load_template_defaults() -> Tuple[List[str], Dict[str, object]]:
+    wb = openpyxl.load_workbook(io.BytesIO(_decode_template_bytes()), data_only=True)
     if TEMPLATE_SHEETNAME not in wb.sheetnames:
         raise ValueError(f"Template must contain a sheet named '{TEMPLATE_SHEETNAME}'.")
     ws = wb[TEMPLATE_SHEETNAME]
-
     headers = [c.value for c in ws[1]]
     defaults = [c.value for c in ws[2]]
-
     if not headers or any(h is None for h in headers):
         raise ValueError("Template header row (row 1) appears to be missing/invalid.")
-
-    default_row = dict(zip(headers, defaults))
-    return headers, default_row
-
+    return headers, dict(zip(headers, defaults))
 
 def block_contains_void(block: pd.DataFrame) -> bool:
     for col in block.columns:
@@ -76,7 +99,6 @@ def block_contains_void(block: pd.DataFrame) -> bool:
                 return True
     return False
 
-
 def pick_labeled_value(block: pd.DataFrame, label: str,
                        label_col: str = "Unnamed: 3", value_col: str = "Unnamed: 4") -> str:
     for _, r in block.iterrows():
@@ -84,7 +106,6 @@ def pick_labeled_value(block: pd.DataFrame, label: str,
         if lab.upper().startswith(label.upper()):
             return _s(r.get(value_col, ""))
     return ""
-
 
 def pick_lumens(block: pd.DataFrame) -> str:
     col = "Unnamed: 7"
@@ -100,7 +121,6 @@ def pick_lumens(block: pd.DataFrame) -> str:
             return t
     return ""
 
-
 def pick_input_load(block: pd.DataFrame) -> str:
     for _, r in block.iterrows():
         for c in block.columns:
@@ -109,11 +129,9 @@ def pick_input_load(block: pd.DataFrame) -> str:
                 continue
             m = re.search(r"\b\d+(\.\d+)?\s*[Ww]\b", t)
             if m:
-                token = m.group(0)
-                token = re.sub(r"w\b", "W", token)
+                token = re.sub(r"w\b", "W", m.group(0))
                 return token
     return ""
-
 
 def pick_unit(block: pd.DataFrame) -> str:
     unit_cols = ["Unnamed: 8", "Unnamed: 6", "Unnamed: 9"]
@@ -127,11 +145,10 @@ def pick_unit(block: pd.DataFrame) -> str:
                     break
         if raw:
             break
-    raw_low = raw.lower()
-    if "ln.ft" in raw_low or "ln/ft" in raw_low or "linear" in raw_low:
+    low = raw.lower()
+    if "ln.ft" in low or "ln/ft" in low or "linear" in low:
         return "ln.ft"
     return "each"
-
 
 def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
     if "Unnamed: 1" not in block.columns:
@@ -141,7 +158,7 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
         val = block.iloc[k].get("Unnamed: 1", "")
         if pd.isna(val):
             continue
-        txt = str(val)
+        txt = str(val)  # preserve exact
         t = txt.strip()
         if not t:
             continue
@@ -151,16 +168,11 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
         if re.search(r"\(\d{3}\)", t) or re.search(r"\d{3}[-\s]\d{3}[-\s]\d{4}", t):
             continue
         score = 0
-        if "_" in t:
-            score += 10
-        if re.search(r"\d", t):
-            score += 3
-        if "*" in t:
-            score += 2
-        if len(t) > 18:
-            score += 2
-        if re.search(r"[A-Z]{2,}\d", t):
-            score += 2
+        if "_" in t: score += 10
+        if re.search(r"\d", t): score += 3
+        if "*" in t: score += 2
+        if len(t) > 18: score += 2
+        if re.search(r"[A-Z]{2,}\d", t): score += 2
         if re.fullmatch(r"[A-Za-z]+\s*\d+", t) and "_" not in t:
             score -= 6
         candidates.append((score, txt))
@@ -168,7 +180,6 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
         return ""
     candidates.sort(key=lambda x: (-x[0], -len(x[1])))
     return candidates[0][1]
-
 
 def find_best_unit_field(headers: List[str]) -> Optional[str]:
     priority = ["UnitType", "Unit", "Units", "QtyUnit", "QuantityUnit"]
@@ -182,7 +193,6 @@ def find_best_unit_field(headers: List[str]) -> Optional[str]:
         if re.search(r"type", str(h), re.IGNORECASE):
             return h
     return unitish[0]
-
 
 def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[str, object]) -> pd.DataFrame:
     first_col = schedule_df.columns[0]
@@ -251,12 +261,12 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 
-schedule_file = st.file_uploader("", type=["csv"])
+schedule_file = st.file_uploader("Fixture schedule CSV", type=["csv"], label_visibility="collapsed")
 show_detected = st.checkbox("Show preview of detected fixture rows", value=False)
 show_output = st.checkbox("Output preview", value=True)
 
 if schedule_file is not None:
-    headers, default_row = load_template_defaults_from_repo()
+    headers, default_row = load_template_defaults()
     schedule_df = pd.read_csv(schedule_file, dtype=str)
 
     if show_detected:
