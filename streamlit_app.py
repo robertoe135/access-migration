@@ -1,5 +1,5 @@
 # streamlit_app.py
-import os
+import io
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -9,7 +9,6 @@ import streamlit as st
 import openpyxl
 
 APP_TITLE = "Fixture Schedule Migration to Access"
-TEMPLATE_FILENAME = "TEMPLATE.xlsx"
 TEMPLATE_SHEETNAME = "tbeFixtureTypeDetails"
 FIXTURE_CODE_RE = re.compile(r"^[A-Z]{1,3}(?:-\d+)?$")
 
@@ -26,33 +25,35 @@ def is_fixture_code(x) -> bool:
     return bool(FIXTURE_CODE_RE.fullmatch(_s(x).strip()))
 
 
-def resolve_template_path() -> str:
-    """
-    Streamlit Cloud mounts repo at /mount/src/<repo_name>/...
-    Use current working directory as the repo root, then fall back to script dir.
-    """
-    cwd_path = os.path.join(os.getcwd(), TEMPLATE_FILENAME)
-    if os.path.exists(cwd_path):
-        return cwd_path
-
-    script_dir_path = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
-    if os.path.exists(script_dir_path):
-        return script_dir_path
-
-    # Try one directory up from script (common if script is in a subfolder)
-    parent_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), TEMPLATE_FILENAME)
-    if os.path.exists(parent_path):
-        return parent_path
-
-    raise FileNotFoundError(
-        f"Missing {TEMPLATE_FILENAME}. Put it in your repo root (same level as streamlit_app.py), "
-        f"or in the same folder as streamlit_app.py."
-    )
-
-
+@st.cache_data(show_spinner=False)
 def load_template_defaults_from_repo() -> Tuple[List[str], Dict[str, object]]:
-    template_path = resolve_template_path()
-    wb = openpyxl.load_workbook(template_path, data_only=True)
+    """
+    Reads TEMPLATE.xlsx from app bundle if present.
+    If it's not in the repo, falls back to an embedded base64 string.
+    Replace TEMPLATE_XLSX_BASE64 with your real template content to eliminate FileNotFoundError.
+    """
+    try_paths = ["TEMPLATE.xlsx", "./TEMPLATE.xlsx", "assets/TEMPLATE.xlsx", "./assets/TEMPLATE.xlsx"]
+    for p in try_paths:
+        try:
+            with open(p, "rb") as f:
+                template_bytes = f.read()
+            break
+        except Exception:
+            template_bytes = None
+
+    if template_bytes is None:
+        # IMPORTANT: Replace this with your template's base64 to fully embed the file.
+        # (Leaving it empty will throw a clear error instead of FileNotFoundError.)
+        TEMPLATE_XLSX_BASE64 = ""
+        if not TEMPLATE_XLSX_BASE64:
+            raise FileNotFoundError(
+                "TEMPLATE.xlsx not found in repo (root or assets/). "
+                "Add TEMPLATE.xlsx to the repo, or embed it by setting TEMPLATE_XLSX_BASE64."
+            )
+        import base64
+        template_bytes = base64.b64decode(TEMPLATE_XLSX_BASE64)
+
+    wb = openpyxl.load_workbook(io.BytesIO(template_bytes), data_only=True)
     if TEMPLATE_SHEETNAME not in wb.sheetnames:
         raise ValueError(f"Template must contain a sheet named '{TEMPLATE_SHEETNAME}'.")
     ws = wb[TEMPLATE_SHEETNAME]
@@ -76,12 +77,8 @@ def block_contains_void(block: pd.DataFrame) -> bool:
     return False
 
 
-def pick_labeled_value(
-    block: pd.DataFrame,
-    label: str,
-    label_col: str = "Unnamed: 3",
-    value_col: str = "Unnamed: 4",
-) -> str:
+def pick_labeled_value(block: pd.DataFrame, label: str,
+                       label_col: str = "Unnamed: 3", value_col: str = "Unnamed: 4") -> str:
     for _, r in block.iterrows():
         lab = _s(r.get(label_col, "")).strip()
         if lab.upper().startswith(label.upper()):
@@ -144,7 +141,7 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
         val = block.iloc[k].get("Unnamed: 1", "")
         if pd.isna(val):
             continue
-        txt = str(val)  # exact
+        txt = str(val)
         t = txt.strip()
         if not t:
             continue
@@ -153,7 +150,6 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
             continue
         if re.search(r"\(\d{3}\)", t) or re.search(r"\d{3}[-\s]\d{3}[-\s]\d{4}", t):
             continue
-
         score = 0
         if "_" in t:
             score += 10
@@ -167,7 +163,6 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
             score += 2
         if re.fullmatch(r"[A-Za-z]+\s*\d+", t) and "_" not in t:
             score -= 6
-
         candidates.append((score, txt))
     if not candidates:
         return ""
@@ -274,10 +269,9 @@ if schedule_file is not None:
     if show_output:
         st.dataframe(out_df.head(200), use_container_width=True)
 
-    csv_bytes = out_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download CSV",
-        data=csv_bytes,
+        data=out_df.to_csv(index=False).encode("utf-8"),
         file_name="fixture_template_export.csv",
         mime="text/csv",
     )
