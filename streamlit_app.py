@@ -111,10 +111,11 @@ def pick_input_load(block: pd.DataFrame) -> str:
             t = _s(r.get(c, "")).strip()
             if not t:
                 continue
-            m = re.search(r"\b\d+(\.\d+)?\s*[Ww]\b", t)
+            m = re.search(r"\b(\d+(?:\.\d+)?)\s*[Ww]\b", t)
             if m:
-                return re.sub(r"w\b", "W", m.group(0))
+                return m.group(1)
     return ""
+
 
 
 def pick_unit(block: pd.DataFrame) -> str:
