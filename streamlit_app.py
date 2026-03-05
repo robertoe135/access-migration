@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import openpyxl
+import io
 
 APP_TITLE = "Fixture Schedule Migration to Access"
 TEMPLATE_SHEETNAME = "tbeFixtureTypeDetails"
@@ -310,7 +311,7 @@ if schedule_file is not None:
     if show_output:
         st.dataframe(out_df.head(200), use_container_width=True)
 
- import io
+
 
 buffer = io.BytesIO()
 
