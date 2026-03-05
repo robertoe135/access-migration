@@ -310,9 +310,18 @@ if schedule_file is not None:
     if show_output:
         st.dataframe(out_df.head(200), use_container_width=True)
 
-    st.download_button(
-        "Download CSV",
-        data=out_df.to_csv(index=False).encode("utf-8"),
-        file_name="fixture_template_export.csv",
-        mime="text/csv",
-    )
+ import io
+
+buffer = io.BytesIO()
+
+with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+    out_df.to_excel(writer, index=False, sheet_name="tbeFixtureTypeDetails")
+
+buffer.seek(0)
+
+st.download_button(
+    "Download Excel",
+    data=buffer,
+    file_name="fixture_template_export.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
