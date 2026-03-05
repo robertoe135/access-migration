@@ -1,6 +1,7 @@
 # streamlit_app.py
 import os
 import re
+import io
 from datetime import date
 from typing import Dict, List, Optional, Tuple
 
@@ -8,7 +9,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import openpyxl
-import io
 
 APP_TITLE = "Fixture Schedule Migration to Access"
 TEMPLATE_SHEETNAME = "tbeFixtureTypeDetails"
@@ -35,13 +35,11 @@ def is_fixture_code(x) -> bool:
 
 
 def resolve_template_path() -> str:
-    # Prefer repo root (Streamlit Cloud uses os.getcwd() as repo root)
     for p in TEMPLATE_CANDIDATE_PATHS:
         abs_p = os.path.join(os.getcwd(), p) if not os.path.isabs(p) else p
         if os.path.exists(abs_p):
             return abs_p
 
-    # Fallback to script directory
     script_dir = os.path.dirname(__file__)
     for p in TEMPLATE_CANDIDATE_PATHS:
         abs_p = os.path.join(script_dir, p)
@@ -109,7 +107,6 @@ def pick_lumens(block: pd.DataFrame) -> str:
 
 
 def pick_input_load(block: pd.DataFrame) -> str:
-    # Return numeric only (no W)
     for _, r in block.iterrows():
         for c in block.columns:
             t = _s(r.get(c, "")).strip()
@@ -122,7 +119,6 @@ def pick_input_load(block: pd.DataFrame) -> str:
 
 
 def pick_unit(block: pd.DataFrame) -> str:
-    # If ln.ft appears anywhere in nearby unit-ish columns, return ln.ft; else each
     unit_cols = ["Unnamed: 8", "Unnamed: 6", "Unnamed: 9"]
     raw = ""
     for c in unit_cols:
@@ -142,7 +138,6 @@ def pick_unit(block: pd.DataFrame) -> str:
 
 
 def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
-    # Preserve catalog EXACTLY as it appears (incl *TBC by architect notes, etc.)
     if "Unnamed: 1" not in block.columns:
         return ""
 
@@ -151,13 +146,12 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
         val = block.iloc[k].get("Unnamed: 1", "")
         if pd.isna(val):
             continue
-        txt = str(val)  # exact text
+        txt = str(val)
         t = txt.strip()
         if not t:
             continue
         low = t.lower()
 
-        # Skip obvious non-catalog lines
         if "http" in low or "www" in low or "@" in t or "#ref" in low:
             continue
         if re.search(r"\(\d{3}\)", t) or re.search(r"\d{3}[-\s]\d{3}[-\s]\d{4}", t):
@@ -174,8 +168,6 @@ def pick_catalog_scored_exact(block: pd.DataFrame) -> str:
             score += 2
         if re.search(r"[A-Z]{2,}\d", t):
             score += 2
-
-        # Penalize product-name-only lines like "Fraxion 3"
         if re.fullmatch(r"[A-Za-z]+\s*\d+", t) and "_" not in t:
             score -= 6
 
@@ -212,7 +204,7 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
     out_rows = []
 
     for j, start in enumerate(fixture_idx):
-        end = fixture_idx[j + 1] if j + 1 < len(fixture_idx) else len(schedule_df)
+        end = fixture_idx[j + 1] if j + 1 < len(schedule_df) else len(schedule_df)
         block = schedule_df.iloc[start:end]
 
         fixture_type = _s(block.iloc[0][first_col]).strip()
@@ -232,53 +224,40 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
 
         out = dict(default_row)
 
-        # Core mappings
         if "Type" in out:
             out["Type"] = fixture_type
-
         if "Manufacturer" in out and manufacturer:
             out["Manufacturer"] = manufacturer
-
         if "CatalogNo" in out and catalog:
             out["CatalogNo"] = catalog
-
         if "BaseDescription" in out and base_desc:
             out["BaseDescription"] = base_desc
-
         if "Protection" in out and protection:
             out["Protection"] = protection
-
         if "Location" in out and location:
             out["Location"] = location
-
         if "DimProtocol" in out and dim_proto:
             out["DimProtocol"] = dim_proto
-
         if "LumenOutput" in out and lumens:
             out["LumenOutput"] = lumens
 
-        # Input load numeric only
         if input_load:
             if "InputLoad" in out:
                 out["InputLoad"] = input_load
             elif "Lamp1InputLoad" in out:
                 out["Lamp1InputLoad"] = input_load
 
-        # Unit type normalization
         if unit_field and unit_field in out:
             out[unit_field] = unit_value
 
-        # VOID flag
         if "VOID" in out:
             out["VOID"] = True if void_flag else bool(out["VOID"])
 
-        # Efficacy: clear and do not confirm
         if "Efficacy" in out:
             out["Efficacy"] = ""
         if "EfficacyConfirmed" in out:
             out["EfficacyConfirmed"] = False
 
-        # Quote date: always today
         if "QuoteDate" in out:
             out["QuoteDate"] = date.today().isoformat()
 
@@ -290,34 +269,46 @@ def transform(schedule_df: pd.DataFrame, headers: List[str], default_row: Dict[s
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 
-schedule_file = st.file_uploader("Fixture schedule CSV", type=["csv"], label_visibility="collapsed")
+schedule_file = st.file_uploader(
+    "Fixture schedule CSV",
+    type=["csv"],
+    label_visibility="collapsed",
+)
 show_detected = st.checkbox("Show preview of detected fixture rows", value=False)
 show_output = st.checkbox("Output preview", value=True)
 
-if schedule_file is not None:
+# ✅ Do nothing until user uploads a file (prevents startup errors)
+if schedule_file is None:
+    st.stop()
+
+try:
     headers, default_row = load_template_defaults()
     schedule_df = pd.read_csv(schedule_file, dtype=str)
+except Exception as e:
+    st.error(str(e))
+    st.stop()
 
-    if show_detected:
-        first_col = schedule_df.columns[0]
-        mask = schedule_df[first_col].apply(is_fixture_code)
-        st.dataframe(
-            schedule_df.loc[mask, [first_col]].head(200),
-            use_container_width=True,
-        )
+if show_detected:
+    first_col = schedule_df.columns[0]
+    mask = schedule_df[first_col].apply(is_fixture_code)
+    st.dataframe(
+        schedule_df.loc[mask, [first_col]].head(200),
+        use_container_width=True,
+    )
 
+try:
     out_df = transform(schedule_df, headers, default_row)
+except Exception as e:
+    st.error(str(e))
+    st.stop()
 
-    if show_output:
-        st.dataframe(out_df.head(200), use_container_width=True)
+if show_output:
+    st.dataframe(out_df.head(200), use_container_width=True)
 
-
-
+# Export as Excel (.xlsx)
 buffer = io.BytesIO()
-
 with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-    out_df.to_excel(writer, index=False, sheet_name="tbeFixtureTypeDetails")
-
+    out_df.to_excel(writer, index=False, sheet_name=TEMPLATE_SHEETNAME)
 buffer.seek(0)
 
 st.download_button(
